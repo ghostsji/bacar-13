@@ -1,0 +1,154 @@
+<div class="container">
+  <h1>{{ title() }}</h1>
+
+  <div class="login-form" *ngIf="!isLoggedIn()">
+    <h2>Login</h2>
+    <div class="login-tabs">
+      <button [class.active]="loginTab() === 'amateur'" (click)="loginTab.set('amateur')">Amateur Radio</button>
+      <button [class.active]="loginTab() === 'alternative'" (click)="loginTab.set('alternative')">Alternative</button>
+    </div>
+    <div *ngIf="loginTab() === 'amateur'">
+      <label for="callSign">Call Sign</label>
+      <small id="callSignHelp">Your amateur radio call sign</small>
+      <input id="callSign" type="text" [ngModel]="callSign()" (ngModelChange)="callSign.set($event)" placeholder="e.g., ZS6HJH" required aria-describedby="callSignHelp">
+      <label for="gridSquare">Grid Square</label>
+      <small id="gridSquareHelp">6-character grid square locator</small>
+      <input id="gridSquare" type="text" [ngModel]="gridSquare()" (ngModelChange)="gridSquare.set($event)" placeholder="e.g., EM12AB" required maxlength="6" aria-describedby="gridSquareHelp">
+    </div>
+    <div *ngIf="loginTab() === 'alternative'">
+      <label for="name">Name</label>
+      <input id="name" type="text" [ngModel]="name()" (ngModelChange)="name.set($event)" placeholder="Your name" required>
+      <label for="city">City</label>
+      <input id="city" type="text" [ngModel]="city()" (ngModelChange)="city.set($event)" placeholder="Your city" required>
+    </div>
+    <button (click)="login()" [disabled]="!isConnected || isLoggingIn()">{{ isLoggingIn() ? 'Logging in...' : 'Login' }}</button>
+    <p *ngIf="!isConnected" style="color: red;">Connect to MQTT first</p>
+    <button *ngIf="!isConnected" (click)="retryConnect()" [disabled]="isConnecting()">{{ isConnecting() ? 'Connecting...' : 'Retry Connection' }}</button>
+    <p *ngIf="errorMessage()" style="color: red;">{{ errorMessage() }}</p>
+    <p *ngIf="successMessage()" style="color: green;">{{ successMessage() }}</p>
+  </div>
+
+  <div *ngIf="isLoggedIn()">
+
+   <div class="header-section">
+     <div class="nav-card">
+       <h2>Navigation</h2>
+       <div class="tabs">
+         <button [class.active]="selectedTab() === 'AeroLink'" (click)="selectedTab.set('AeroLink'); selectedTopic.set('BaCaR/Launch/Event/ZS6HJH/AeroLink/Response')">
+           AeroLink
+         </button>
+         <button [class.active]="selectedTab() === 'Lumina'" (click)="selectedTab.set('Lumina'); selectedTopic.set('BaCaR/Launch/Event/ZS6HJH/LuminaS/Response')">
+           Lumina Stratos
+         </button>
+       </div>
+       <button class="logout-btn" (click)="logout()">Logout</button>
+     </div>
+
+     <div class="status-card">
+       <h3>Connection Status</h3>
+       <div class="connection-status" [ngClass]="{'connected': isConnected, 'disconnected': !isConnected}">
+         {{ isConnected ? 'Connected' : 'Disconnected' }}
+       </div>
+       <div class="last-message">Last message: {{ timeSinceLastMessage() }}</div>
+       <span style="display:none">{{ updateTrigger() }}</span>
+     </div>
+   </div>
+
+  <div class="card">
+    <h2>Live Data Feed</h2>
+    <div class="live-data-container">
+      <table class="live-data-table" *ngIf="getAllResponses().length > 0; else noData">
+        <thead>
+          <tr>
+            <th>Topic</th>
+            <th>Data</th>
+            <th>Last Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let response of getAllResponses()" [ngClass]="{'highlight': highlights.get(response.topic)}">
+            <td class="topic-cell">{{ response.topic.split('/').slice(-2).join('/') || response.topic }}</td>
+            <td class="data-cell">
+              <div class="data-preview">
+                <span *ngFor="let key of objectKeys(response.payload?.a || {})" class="data-item">
+                  <strong>{{ key }}:</strong>
+                  <ng-container *ngIf="isArray(response.payload.a[key]); else notArray">
+                    {{ response.payload.a[key].join(', ') }}
+                  </ng-container>
+                  <ng-template #notArray>
+                    {{ response.payload.a[key] }}
+                  </ng-template>
+                </span>
+              </div>
+            </td>
+            <td class="time-cell">{{ response.lastUpdate | date:'shortTime' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <ng-template #noData><em>No data received yet...</em></ng-template>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Detailed View - {{ selectedTab() }}</h2>
+    <div>
+      <select [ngModel]="selectedTopic()" (ngModelChange)="selectedTopic.set($event)">
+        <option *ngFor="let topic of getFilteredTopics()" [value]="topic">{{ topic.split('/').slice(-2).join('/') || topic }}</option>
+      </select>
+      <div class="timer" *ngIf="responses.get(selectedTopic())">Next packet in: {{ timers.get(selectedTopic()) }}s</div>
+      <table class="response-table" *ngIf="responses.get(selectedTopic())?.a; else noResponse">
+        <tbody>
+          <tr *ngFor="let key of objectKeys(responses.get(selectedTopic())?.a || {})">
+            <th [attr.data-label]="key">{{ key }}</th>
+            <td [ngClass]="{'highlight': highlights.get(selectedTopic())}">
+              <ng-container *ngIf="isArray(responses.get(selectedTopic()).a[key]); else notArray">
+                {{ responses.get(selectedTopic()).a[key].join(', ') }}
+              </ng-container>
+              <ng-template #notArray>
+                {{ responses.get(selectedTopic()).a[key] }}
+              </ng-template>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <ng-template #noResponse><em>Waiting for response...</em></ng-template>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Message History</h2>
+    <button (click)="clearHistory()">Clear History</button>
+    <div class="history-container">
+      <div *ngIf="messageHistory.length > 0; else noHistory">
+        <div class="message-item" *ngFor="let msg of messageHistory.slice().reverse()">
+          <div class="message-header">
+            <strong>{{ msg.topic }}</strong> - {{ msg.timestamp | date:'short' }}
+          </div>
+          <div class="message-payload">
+            <table class="payload-table">
+              <tbody>
+                <tr *ngFor="let key of objectKeys(msg.payload?.a || {})">
+                  <th [attr.data-label]="key">{{ key }}</th>
+                  <td>
+                    <ng-container *ngIf="isArray(msg.payload.a[key]); else notArray">
+                      {{ msg.payload.a[key].join(', ') }}
+                    </ng-container>
+                    <ng-template #notArray>
+                      {{ msg.payload.a[key] }}
+                    </ng-template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <ng-template #noHistory>
+        <p>No messages yet.</p>
+      </ng-template>
+    </div>
+  </div>
+
+  </div>
+
+
